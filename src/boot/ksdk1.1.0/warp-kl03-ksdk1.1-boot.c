@@ -55,7 +55,7 @@
 #include "SEGGER_RTT.h"
 #include "warp.h"
 
-//#define WARP_FRDMKL03
+#define WARP_FRDMKL03
 
 /*
 *	Comment out the header file to disable devices
@@ -81,6 +81,7 @@
 #else
 #	include "devMMA8451Q.h"
 #endif
+#include "devSSD1331.h"
 
 #define WARP_BUILD_ENABLE_SEGGER_RTT_PRINTF
 //#define WARP_BUILD_BOOT_TO_CSVSTREAM
@@ -1235,7 +1236,7 @@ main(void)
 #endif
 
 #ifdef WARP_BUILD_ENABLE_DEVMMA8451Q
-	initMMA8451Q(	0x1C	/* i2cAddress */,	&deviceMMA8451QState	);
+	initMMA8451Q(	0x1D	/* i2cAddress */,	&deviceMMA8451QState	);
 #endif	
 
 #ifdef WARP_BUILD_ENABLE_DEVLPS25H
@@ -1340,7 +1341,11 @@ main(void)
 #endif
 
 
-
+	/*
+	*	Initialization: SSD1331 OLED display, draw a green rectagle filling the display
+	*/
+    devSSD1331init();
+    
 
 	while (1)
 	{

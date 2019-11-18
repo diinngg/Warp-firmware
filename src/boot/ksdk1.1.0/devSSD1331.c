@@ -8,8 +8,8 @@
 #include "warp.h"
 #include "devSSD1331.h"
 
-volatile uint8_t	inBuffer[1];
-volatile uint8_t	payloadBytes[1];
+volatile uint8_t	inBuffer[32];
+volatile uint8_t	payloadBytes[32];
 
 
 /*
@@ -134,12 +134,14 @@ devSSD1331init(void)
 	writeCommand(kSSD1331CommandCONTRASTC);		// 0x83
 	writeCommand(0x7D);
 	writeCommand(kSSD1331CommandDISPLAYON);		// Turn on oled panel
+//	SEGGER_RTT_WriteString(0, "\r\n\tDone with initialization sequence...\n");
 
 	/*
 	 *	To use fill commands, you will have to issue a command to the display to enable them. See the manual.
 	 */
 	writeCommand(kSSD1331CommandFILL);
 	writeCommand(0x01);
+//	SEGGER_RTT_WriteString(0, "\r\n\tDone with enabling fill...\n");
 
 	/*
 	 *	Clear Screen
@@ -149,15 +151,34 @@ devSSD1331init(void)
 	writeCommand(0x00);
 	writeCommand(0x5F);
 	writeCommand(0x3F);
+//	SEGGER_RTT_WriteString(0, "\r\n\tDone with screen clear...\n");
 
 
 
 	/*
-	 *	Any post-initialization drawing commands go here.
+	 *	Read the manual for the SSD1331 (SSD1331_1.2.pdf) to figure
+	 *	out how to fill the entire screen with the brightest shade
+	 *	of green.
 	 */
-	//...
+
+    writeCommand(kSSD1331CommandDRAWRECT);
+    writeCommand(0x00); // Start column address
+    writeCommand(0x00); // Start row address
+    writeCommand(0x5F); // End column address
+    writeCommand(0x3F); // End row address
+    writeCommand(0x00); // Line colour C
+    writeCommand(0xFF); // Line colour B
+    writeCommand(0x00); // Line colour A
+    writeCommand(0x00); // Fill colour C
+    writeCommand(0xFF); // Fill colour B
+    writeCommand(0x00); // Fill colour A
+    
+
+
+//	SEGGER_RTT_WriteString(0, "\r\n\tDone with draw rectangle...\n");
 
 
 
 	return 0;
 }
+
