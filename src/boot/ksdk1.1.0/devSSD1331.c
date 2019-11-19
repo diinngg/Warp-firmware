@@ -161,19 +161,6 @@ devSSD1331init(void)
 	 *	of green.
 	 */
 
-    writeCommand(kSSD1331CommandDRAWRECT);
-    writeCommand(0x00); // Start column address
-    writeCommand(0x00); // Start row address
-    writeCommand(0x5F); // End column address
-    writeCommand(0x3F); // End row address
-    writeCommand(0x00); // Line colour C
-    writeCommand(0xFF); // Line colour B
-    writeCommand(0x00); // Line colour A
-    writeCommand(0x00); // Fill colour C
-    writeCommand(0xFF); // Fill colour B
-    writeCommand(0x00); // Fill colour A
-    
-
 
 //	SEGGER_RTT_WriteString(0, "\r\n\tDone with draw rectangle...\n");
 
@@ -182,3 +169,19 @@ devSSD1331init(void)
 	return 0;
 }
 
+
+void
+devSSD1331FillScreen(uint8_t valueRed, uint8_t valueGreen, uint8_t valueBlue)
+{
+	writeCommand(kSSD1331CommandDRAWRECT);
+    writeCommand(0x00); // Start column address
+    writeCommand(0x00); // Start row address
+    writeCommand(0x5F); // End column address
+    writeCommand(0x3F); // End row address
+    writeCommand(valueRed); // Line colour C
+    writeCommand(valueGreen); // Line colour B
+    writeCommand(valueBlue); // Line colour A
+    writeCommand(valueRed); // Fill colour C
+    writeCommand(valueGreen); // Fill colour B
+    writeCommand(valueBlue); // Fill colour A
+}

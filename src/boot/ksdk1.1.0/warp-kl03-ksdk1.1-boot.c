@@ -82,6 +82,7 @@
 #	include "devMMA8451Q.h"
 #endif
 #include "devSSD1331.h"
+#include "devINA219.h"
 
 #define WARP_BUILD_ENABLE_SEGGER_RTT_PRINTF
 //#define WARP_BUILD_BOOT_TO_CSVSTREAM
@@ -168,6 +169,10 @@ volatile WarpI2CDeviceState			deviceAS7263State;
 
 #ifdef WARP_BUILD_ENABLE_DEVRV8803C7
 volatile WarpI2CDeviceState			deviceRV8803C7State;
+#endif
+
+#ifdef WARP_BUILD_ENABLE_DEVINA219
+volatile WarpI2CDeviceState			deviceINA219State;
 #endif
 
 /*
@@ -1287,6 +1292,10 @@ main(void)
 	initAS7263(	0x49	/* i2cAddress */,	&deviceAS7263State	);
 #endif
 
+#ifdef WARP_BUILD_ENABLE_DEVINA219
+	initINA219(	0x40	/* i2cAddress */,	&deviceINA219State	);
+#endif
+
 #ifdef WARP_BUILD_ENABLE_DEVRV8803C7
   initRV8803C7(0x32 /* i2cAddress */, &deviceRV8803C7State);
   enableI2Cpins(menuI2cPullupValue);
@@ -1345,7 +1354,84 @@ main(void)
 	*	Initialization: SSD1331 OLED display, draw a green rectagle filling the display
 	*/
     devSSD1331init();
-    
+    devSSD1331FillScreen(0x00, 0xFF, 0x00);
+
+
+#ifdef WARP_BUILD_ENABLE_DEVINA219
+	/*
+	*   Configure INA219
+	*/
+	enableI2Cpins(10);
+	if (configureSensorINA219(0b0 << 15		/* 15: Reset bit */
+							| 0b1 << 13		/* 13: Bus voltage range (32V) */
+							| 0b00 << 11	/* 12-11: Shunt voltage gain (1) */
+							| 0b1000 << 7	/* 10-7: Bus voltage resolution/averaging (12bit, 1 sample) */
+							| 0b1000 << 3	/* 6-3: Shunt voltage resolution/averaging (12bit, 1 sample) */
+							| 0b111,		/* 2-0: Operating mode (Shunt and bus, continuous) */
+						 	4096,       	/* Calibration value */
+							0.1)			/* Shunt resistor value */
+			!= kWarpStatusOK)
+	{
+		SEGGER_RTT_WriteString(0, "Config failed!\n");
+		while (1);
+	}
+
+	SEGGER_RTT_WriteString(0, "Current/uA,Shunt Voltage/uV,Bus Voltage/mV,Power/mW\n");
+	#define N_RUNS 1000
+	for (uint16_t i = 0; i < N_RUNS; i++)
+	{
+		/*
+		*   Check for conversion ready not needed with print delay
+		* 
+		bool ready = false;
+		while (!ready)
+		{
+			if (readConversionReadyINA219(&ready) != kWarpStatusOK)
+			{
+				ready = false;
+				break;
+			}
+		}
+		if (!ready)
+		{
+			SEGGER_RTT_printf(0, "Failed readConversionReady at run %d\n", i);
+			break;
+		}
+		*/
+
+		uint16_t result_i, result_vs, result_vb, result_p;
+		if (readCurrentINA219(&result_i) != kWarpStatusOK)
+		{
+			SEGGER_RTT_printf(0, "Failed readCurrent at run %d\n", i);
+			break;
+		}
+		if (readShuntVoltageINA219(&result_vs) != kWarpStatusOK)
+		{
+			SEGGER_RTT_printf(0, "Failed readShuntVoltage at run %d\n", i);
+			break;
+		}
+		if (readBusVoltageINA219(&result_vb) != kWarpStatusOK)
+		{
+			SEGGER_RTT_printf(0, "Failed readBusVoltage at run %d\n", i);
+			break;
+		}
+		if (readPowerINA219(&result_p) != kWarpStatusOK)
+		{
+			SEGGER_RTT_printf(0, "Failed readPower at run %d\n", i);
+			break;
+		}
+		SEGGER_RTT_printf(0, "%d,%d,%d,%d\n", result_i, result_vs, result_vb, result_p);
+		OSA_TimeDelay(gWarpMenuPrintDelayMilliseconds);
+	}
+
+	disableI2Cpins();
+	SEGGER_RTT_WriteString(0, "Done!\n");
+	OSA_TimeDelay(gWarpMenuPrintDelayMilliseconds);
+
+	while (1);
+
+#endif
+
 
 	while (1)
 	{
