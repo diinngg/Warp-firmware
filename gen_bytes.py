@@ -91,7 +91,7 @@ def do_move():
 
 if __name__ == '__main__':
     os.chdir(sys.path[0])
-    do_move()
+    #do_move()
     with open('boards.pickle', 'rb') as f:
         boards = pickle.load(f)
 
@@ -125,15 +125,14 @@ if __name__ == '__main__':
             continue
         
         spaces = 9 - i
-        total = spaces * len(boards_by_move_num[i])
-        print(total/2)
         s = '0x'
-        for j in range(total):
+        for j in range(spaces):
             s += '7'
-            if j % 2 and j < total - 1:
+            if j % 2 and j < spaces - 1:
                 s += ', 0x'
-        if total % 2:
+        if spaces % 2:
             s += '0'
+        s = ', '.join([s]*len(boards_by_move_num[i]))
         print(f'{out_type:s} moves{i:d}[] = {{ {s:s} }};')
     print(f'const {out_type:s} *moves[] = {{ moves0, moves1, moves2, moves3, moves4, moves5, moves6, moves7 }};')
 
