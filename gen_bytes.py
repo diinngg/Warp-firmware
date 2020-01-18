@@ -91,7 +91,7 @@ def do_move():
 
 if __name__ == '__main__':
     os.chdir(sys.path[0])
-    #do_move()
+    do_move()
     with open('boards.pickle', 'rb') as f:
         boards = pickle.load(f)
 
