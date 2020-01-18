@@ -1,6 +1,7 @@
 #include "fsl_spi_master_driver.h"
 
 #define	min(x,y)	((x) < (y) ? (x) : (y))
+#define	max(x,y)	((x) > (y) ? (x) : (y))
 #define	USED(x)		(void)(x)
 
 typedef enum
@@ -341,7 +342,5 @@ typedef struct
 } WarpThermalChamberKL03MemoryFill;
 
 WarpStatus	warpSetLowPowerMode(WarpPowerMode powerMode, uint32_t sleepSeconds);
-void		enableI2Cpins(uint16_t pullupValue);
-void		disableI2Cpins(void);
 void		enableSPIpins(void);
 void		disableSPIpins(void);

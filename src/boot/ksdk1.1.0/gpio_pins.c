@@ -24,7 +24,7 @@
 
 
 
-gpio_output_pin_user_config_t	outputPins[] = {
+const gpio_output_pin_user_config_t	outputPins[] = {
 	/*
 	 *	Set unused pins as outputs
 	 */
@@ -223,7 +223,7 @@ gpio_output_pin_user_config_t	outputPins[] = {
  *	PTB1 is tied to VBATT. Need to configure it as an input pin.
  *
  */
-gpio_input_pin_user_config_t	inputPins[] = {
+const gpio_input_pin_user_config_t	inputPins[] = {
 	{
 		.pinName = kWarpPinKL03_VDD_ADC,
 		.config.isPullEnable = true,

@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 /*
  *	See https://github.com/adafruit/Adafruit-SSD1331-OLED-Driver-Library-for-Arduino for the Arduino driver.
  */
@@ -42,5 +44,29 @@ typedef enum
 	kSSD1331CommandVCOMH		= 0xBE,
 } SSD1331Commands;
 
-int	devSSD1331init(void);
-void devSSD1331FillScreen(uint8_t valueRed, uint8_t valueGreen, uint8_t valueBlue);
+typedef struct
+{
+	uint8_t x;
+	uint8_t y;
+} screenCoord;
+
+typedef struct
+{
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
+} screenColor;
+
+#define COLOR_RED   (screenColor){0xFF, 0x00, 0x00}
+#define COLOR_GREEN (screenColor){0x00, 0xFF, 0x00}
+#define COLOR_BLUE  (screenColor){0x00, 0x00, 0xFF}
+
+
+int devSSD1331Write(const uint8_t commandByte);
+int	devSSD1331Init(void);
+
+void devSSD1331ClearFull(void);
+void devSSD1331Clear(const screenCoord *start, const screenCoord *end);
+void devSSD1331FillScreen(const screenColor *color);
+void devSSD1331DrawLine(const screenCoord *start, const screenCoord *end, const screenColor *color);
+void devSSD1331DrawRect(const screenCoord *start, const screenCoord *end, const screenColor *color, const uint8_t fill);

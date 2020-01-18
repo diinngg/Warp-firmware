@@ -78,7 +78,7 @@ enum _gpio_pins
 	kWarpPinPAN1326_HCI_CTS 		= GPIO_MAKE_PIN(HW_GPIOA, 7)		/*	Warp kWarpPinPAN1326_HCI_CTS	--> PTA7						*/
 };
 
-extern gpio_input_pin_user_config_t	inputPins[];
-extern gpio_output_pin_user_config_t	outputPins[];
+extern const gpio_input_pin_user_config_t	inputPins[];
+extern const gpio_output_pin_user_config_t	outputPins[];
 
 #endif /* __FSL_GPIO_PINS_H__ */
