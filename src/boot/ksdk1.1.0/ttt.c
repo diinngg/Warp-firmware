@@ -118,6 +118,24 @@ const uint8_t randNums[] = { 0x91, 0x5E, 0x62, 0xF4, 0xBF, 0xFC, 0x50, 0xB2, 0xC
 const uint32_t randLen = 127;
 #endif
 
+// permutations of a board that are equivalent
+const uint8_t permute0[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+// rotate right 90
+const uint8_t permute1[] = { 2, 5, 8, 1, 4, 7, 0, 3, 6 };
+// rotate right 180
+const uint8_t permute2[] = { 8, 7, 6, 5, 4, 3, 2, 1, 0 };
+// rotate right 270
+const uint8_t permute3[] = { 6, 3, 0, 7, 4, 1, 8, 5, 2 };
+// flip horizontal
+const uint8_t permute4[] = { 2, 1, 0, 5, 4, 3, 8, 7, 6 };
+// flip vertical
+const uint8_t permute5[] = { 6, 7, 8, 3, 4, 5, 0, 1, 2 };
+// flip diagonal bottom-left to top-right
+const uint8_t permute6[] = { 8, 5, 2, 7, 4, 1, 6, 3, 0 };
+// flip diagonal top-left to bottom-right
+const uint8_t permute7[] = { 0, 3, 6, 1, 4, 7, 2, 5, 8 };
+const uint8_t * const permute[] = { permute0, permute1, permute2, permute3, permute4, permute5, permute6, permute7 };
+
 
 // main 
 void tttMain(void)
@@ -639,16 +657,17 @@ uint8_t pickBox(void)
         }
         return box;
     }
-
+    
     // calculate the board ID
-    const uint32_t boardID = getMinBoardID();
+    uint32_t boardID;
+    const uint8_t permutation = getMinBoardID(&boardID);
     // number of boards with current number of moves
     const uint32_t numBoards = boards[numMove][0];
     
     // search boards array for the index of the board ID
-    uint32_t lower = 0;
-    uint32_t higher = numBoards - 1;
-    uint32_t index = (lower + higher) / 2;
+    int32_t lower = 0;
+    int32_t higher = numBoards - 1;
+    int32_t index = (lower + higher) / 2;
     uint32_t foundID = boards[numMove][index + 1];
     while (foundID != boardID)
     {
@@ -723,11 +742,11 @@ uint8_t pickBox(void)
         board[(game[i] & BOX_NUM_MASK)] = true;
     for (uint8_t i = 0; i < 9; i++)
     {
-        if (!board[i])
+        if (!board[permute[permutation][i]])
         {
             if (spaceIndex == 0)
             {
-                box = i;
+                box = permute[permutation][i];
                 break;
             }
             else
@@ -742,30 +761,14 @@ uint8_t pickBox(void)
 
 
 // calculate the minimum board ID of this board and its equivalents
-uint32_t getMinBoardID(void)
+// returns the permutation of the minimum
+uint8_t getMinBoardID(uint32_t *boardID)
 {
-    // permutations of a board that are equivalent
-    const uint8_t permute0[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
-    // rotate right 90
-    const uint8_t permute1[] = { 2, 5, 8, 1, 4, 7, 0, 3, 6 };
-    // rotate right 180
-    const uint8_t permute2[] = { 8, 7, 6, 5, 4, 3, 2, 1, 0 };
-    // rotate right 270
-    const uint8_t permute3[] = { 6, 3, 0, 7, 4, 1, 8, 5, 2 };
-    // flip horizontal
-    const uint8_t permute4[] = { 2, 1, 0, 5, 4, 3, 8, 7, 6 };
-    // flip vertical
-    const uint8_t permute5[] = { 6, 7, 8, 3, 4, 5, 0, 1, 2 };
-    // flip diagonal bottom-left to top-right
-    const uint8_t permute6[] = { 8, 5, 2, 7, 4, 1, 6, 3, 0 };
-    // flip diagonal top-left to bottom-right
-    const uint8_t permute7[] = { 0, 3, 6, 1, 4, 7, 2, 5, 8 };
-    const uint8_t *permute[] = { permute0, permute1, permute2, permute3, permute4, permute5, permute6, permute7 };
-
     // fill board array with 1s for first player moves, 2s for second
     // board is numbered left to right, top to bottom
     uint8_t board[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    for (uint8_t i = 0; i < numMove; i++)
+    uint8_t i = 0;
+    for (; i < numMove; i++)
         board[(game[i] & BOX_NUM_MASK)] = (i % 2) + 1;
 
     // find minimum ID among equivalent boards
@@ -773,7 +776,8 @@ uint32_t getMinBoardID(void)
     for (uint8_t i = 0; i < 8; i++)
         minBoardID = min(minBoardID, getBoardID(board, permute[i]));
 
-    return minBoardID;
+    *boardID = minBoardID;
+    return i;
 }
 
 

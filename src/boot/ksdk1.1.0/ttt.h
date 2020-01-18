@@ -17,7 +17,7 @@ void drawWin(const uint8_t box1, const uint8_t box2, const bool mine);
 void drawError(const uint8_t box);
 
 uint8_t pickBox(void);
-uint32_t getMinBoardID(void);
+uint8_t getMinBoardID(uint32_t *boardID);
 uint32_t getBoardID(const uint8_t *board, const uint8_t *permute);
 
 void learnFrom(const bool won);
