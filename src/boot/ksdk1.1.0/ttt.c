@@ -701,22 +701,16 @@ uint8_t pickBox(void)
     uint8_t i = 0;
     while (spaceIndex == 0xFF)
     {
-        for (; i < spaces; i++)
+        for (i = 0; i < spaces; i++)
         {
             uint8_t boxWeight = moves[numMove][offset + i/2];
-            // weighting is in high nibble
+            // weighting is in low nibble
             if (i % 2)
-            {
-#ifdef TEST_MEM
-                spaceIndex = 0;
-#endif
-                boxWeight >> 4;
-            }
+                boxWeight &= 0x0F;
             // low nibble
             else
-            {
-                boxWeight & 0x0F;
-            }
+                boxWeight >>= 4;
+
             // this is the winning space
             if (randNum < boxWeight)
             {
@@ -727,6 +721,9 @@ uint8_t pickBox(void)
             {
                 randNum -= boxWeight;
             }
+#ifdef TEST_MEM
+            spaceIndex = 0;
+#endif
         }
     }
 
@@ -805,24 +802,24 @@ void learnFrom(const bool won)
         // retrieve the stored offset into moves array
         uint8_t *address = &(moves[moveNum][movesMade[moveNum/2] >> 1]);
         // whether we are changing the high or low nibble
-        const bool highNibble = movesMade[moveNum/2] & 1;
-        if (highNibble)
+        const bool lowNibble = movesMade[moveNum/2] & 1;
+        if (lowNibble)
         {
             // get current weighting
-            const uint8_t boxWeight = *address >> 4;
-            // check if an increment/decrement would be <16 and >1
-            if (won && (boxWeight < (16 - LEARN_INC)))
-                *address += LEARN_INC << 4;
-            else if (boxWeight > LEARN_INC)
-                *address -= LEARN_INC << 4;
-        }
-        else
-        {
             const uint8_t boxWeight = *address & 0x0F;
+            // check if an increment/decrement would be <16 and >1
             if (won && (boxWeight < (16 - LEARN_INC)))
                 *address += LEARN_INC;
             else if (boxWeight > LEARN_INC)
                 *address -= LEARN_INC;
+        }
+        else
+        {
+            const uint8_t boxWeight = *address >> 4;
+            if (won && (boxWeight < (16 - LEARN_INC)))
+                *address += LEARN_INC << 4;
+            else if (boxWeight > LEARN_INC)
+                *address -= LEARN_INC << 4;
         }
     }
 }
