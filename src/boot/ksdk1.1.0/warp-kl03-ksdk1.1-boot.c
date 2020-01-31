@@ -48,6 +48,7 @@
 #include "fsl_power_manager.h"
 #include "fsl_mcglite_hal.h"
 #include "fsl_port_hal.h"
+#include "fsl_lpuart_driver.h"
 
 #include "gpio_pins.h"
 #include "SEGGER_RTT.h"
@@ -64,6 +65,15 @@ const spi_master_user_config_t spiUserConfig = {
 	.direction	= kSpiMsbFirst,
 	.bitsPerSec	= 4000000
  };
+
+volatile lpuart_state_t    lpuartState;
+const lpuart_user_config_t lpuartUserConfig = {
+	.clockSource = kClockLpuartSrcIrc48M,
+    .baudRate = 115200,
+	.parityMode = kLpuartParityDisabled,
+	.stopBitCount = kLpuartOneStopBit,
+	.bitCountPerChar = kLpuart8BitsPerChar,
+};
 
 
 
@@ -106,6 +116,60 @@ clockManagerCallbackRoutine(clock_notify_struct_t *  notify, void *  callbackDat
 	}
 
 	return result;
+}
+
+
+
+void
+enableLPUARTpins(void)
+{
+	/*	Enable UART CLOCK */
+	CLOCK_SYS_EnableLpuartClock(0);
+
+	/*
+	*	set UART pin association
+	*	see page 99 in https://www.nxp.com/docs/en/reference-manual/KL03P24M48SF0RM.pdf
+	*/
+
+	/*	Warp KL03_UART_HCI_TX	--> PTB3 (ALT3)	--> PAN1326 HCI_RX */
+	PORT_HAL_SetMuxMode(PORTB_BASE, 3, kPortMuxAlt3);
+	/*	Warp KL03_UART_HCI_RX	--> PTB4 (ALT3)	--> PAN1326 HCI_RX */
+	PORT_HAL_SetMuxMode(PORTB_BASE, 4, kPortMuxAlt3);
+
+	/* TODO: Partial Implementation */
+	/*	Warp PTA6 --> PAN1326 HCI_RTS */
+	/*	Warp PTA7 --> PAN1326 HCI_CTS */
+
+	/*
+	 *	Initialize LPUART0. See KSDK13APIRM.pdf section 40.4.3, page 1353
+	 *
+	 */
+
+	LPUART_DRV_Init(0,(lpuart_state_t *)&lpuartState,(lpuart_user_config_t *)&lpuartUserConfig);
+}
+
+
+void
+disableLPUARTpins(void)
+{
+	/*
+	 *	LPUART deinit
+	 */
+	LPUART_DRV_Deinit(0);
+
+	/*	Warp KL03_UART_HCI_RX	--> PTB4 (GPIO)	*/
+	PORT_HAL_SetMuxMode(PORTB_BASE, 4, kPortMuxAsGpio);
+	/*	Warp KL03_UART_HCI_TX	--> PTB3 (GPIO) */
+	PORT_HAL_SetMuxMode(PORTB_BASE, 3, kPortMuxAsGpio);
+
+	GPIO_DRV_ClearPinOutput(kWarpPinPAN1326_HCI_CTS);
+	GPIO_DRV_ClearPinOutput(kWarpPinPAN1326_HCI_CTS);
+
+	GPIO_DRV_ClearPinOutput(kWarpPinLPUART_HCI_TX);
+	GPIO_DRV_ClearPinOutput(kWarpPinLPUART_HCI_RX);
+
+	/* Disable LPUART CLOCK */
+	CLOCK_SYS_DisableLpuartClock(0);
 }
 
 
@@ -335,7 +399,7 @@ main(void)
 	/*
 	 *	Switch CPU to Very Low Power Run (VLPR) mode
 	 */
-	warpSetLowPowerMode(kWarpPowerModeVLPR, 0);
+	warpSetLowPowerMode(kWarpPowerModeRUN, 0);
 
 
 

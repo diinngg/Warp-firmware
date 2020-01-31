@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "gpio_pins.h"
+#include "fsl_gpio_driver.h"
+#include "fsl_lpuart_driver.h"
 #include "SEGGER_RTT.h"
 #include "warp.h"
 
@@ -29,11 +30,17 @@
 // space to leave around symbols in boxes
 #define BOX_BORDER_OFFSET 2
 
+// whether to use LPUART for game communication
+//#define USE_LPUART
+
 // delay between printing board lines
 #define PRINT_LINE_DELAY 10
 
 // how long to flash error for in ms
 #define ERROR_FLASH_MS 500
+
+// main loop delay in ms when no input was found, comment for 0
+#define LOOP_DELAY 1
 
 // whether to learn whilst in 'play' mode
 #define PLAY_LEARN false
@@ -44,11 +51,33 @@
 // whether the system should go first
 #define ME_FIRST
 
+
+// read/write functions
+#ifdef USE_LPUART
+#define LPUART_RX_BUF_SIZE 2
+uint8_t lpuartRXBuf[LPUART_RX_BUF_SIZE];
+#define HAS_KEY()       (LPUART_DRV_ReceiveDataBlocking(0, lpuartRXBuf, LPUART_RX_BUF_SIZE, 0) == kStatus_LPUART_Success)
+#define GET_KEY()       (lpuartRXBuf[0])
+#define PUT_CHAR(c)     (LPUART_DRV_SendDataBlocking(0, &(unsigned char){c}, 1, 1000))
+#define WRITE_STRING(s) (LPUART_DRV_SendDataBlocking(0, (unsigned char*)s, sizeof(s), 1000))
+void enableLPUARTpins(void);
+#else
+#define HAS_KEY()       (SEGGER_RTT_HasKey())
+#define GET_KEY()       (SEGGER_RTT_GetKey())
+#define PUT_CHAR(c)     (SEGGER_RTT_PutChar(0, c))
+#define WRITE_STRING(s) (SEGGER_RTT_WriteString(0, s))
+#endif
+
+// which set of moves to include
 #ifdef ME_FIRST
 #define MOVES_EVEN
 #else
 #define MOVES_ODD
 #endif
+
+// calculate box x and y coordinates (top-left of box)
+#define BOX_X(box) ((box % 3) * 22)
+#define BOX_Y(box) ((box / 3) * 22)
 
 
 enum eState
@@ -81,7 +110,7 @@ const uint32_t * const boards[] = { boards0, boards1, boards2, boards3, boards4,
 #ifdef TEST_MEM
 #define BYTES 930 //1119
 uint8_t moves0[BYTES];
-const uint8_t * const moves[] = { moves0 };
+uint8_t * const moves[] = { moves0 };
 #else
 // move weighting arrays, split into even and odd moves for whether the system
 // is moving first or the player
@@ -140,8 +169,24 @@ const uint8_t * const permute[] = { permute0, permute1, permute2, permute3, perm
 // main 
 void tttMain(void)
 {
+#ifdef USE_LPUART
+    // enable LPUART
+    enableLPUARTpins();
+#endif
+
     // initialize display
     devSSD1331Init();
+
+    // initialize keypad gpio
+    GPIO_DRV_Init(kpInputPins, kpOutputPins);
+    // outputs
+    PORT_HAL_SetMuxMode(PORTA_BASE, 6u, kPortMuxAsGpio);
+    PORT_HAL_SetMuxMode(PORTA_BASE, 7u, kPortMuxAsGpio);
+    PORT_HAL_SetMuxMode(PORTA_BASE, 12u, kPortMuxAsGpio);
+    // inputs
+    PORT_HAL_SetMuxMode(PORTA_BASE, 5u, kPortMuxAsGpio);
+    PORT_HAL_SetMuxMode(PORTB_BASE, 10u, kPortMuxAsGpio);
+    PORT_HAL_SetMuxMode(PORTB_BASE, 11u, kPortMuxAsGpio);
 
     // draw a sample board
     drawGrid();
@@ -158,19 +203,22 @@ void tttMain(void)
     // main state loop
     while (1)
     {
-        uint8_t key = 0;
+        char key = 0;
         // read input key
-        if (SEGGER_RTT_HasKey())
+        if (HAS_KEY())
         {
-            key = SEGGER_RTT_GetKey();
+            key = GET_KEY();
         }
         else if ((state == IDLE || state == PLAY) && keypadGetKey(&key))
         {
-            
+            if (state == IDLE)
+                key = 'P';
         }
         else
         {
-            OSA_TimeDelay(1);
+#ifdef LOOP_DELAY
+            OSA_TimeDelay(LOOP_DELAY);
+#endif
             continue;
         }
         
@@ -178,9 +226,20 @@ void tttMain(void)
         if (key > 96)
             key -= 32;
 
-        // reset key
-        if (key == 'R')
-            state = IDLE;
+        switch(key)
+        {
+            // reset key
+            case 'R':
+                state = IDLE;
+                resetGame();
+                clearBoard();
+                break;
+            // *IDN?-ish
+            case 'I':
+                WRITE_STRING("Y\n");
+                continue;
+                break;
+        }
 
         switch (state)
         {
@@ -260,9 +319,44 @@ void tttMain(void)
 }
 
 
-// read a key from an attached keypad (todo)
-bool keypadGetKey(uint8_t *key)
+// read a key from an attached keypad
+bool keypadGetKey(char *key)
 {
+    // to prevent repeated inputs
+    static char keyPrev = 0;
+    bool repeat = false;
+
+    const static uint32_t rows[] = { GPIO_MAKE_PIN(HW_GPIOB, 10), GPIO_MAKE_PIN(HW_GPIOB, 11), GPIO_MAKE_PIN(HW_GPIOA, 5) };
+    const static uint32_t cols[] = { GPIO_MAKE_PIN(HW_GPIOA, 7), GPIO_MAKE_PIN(HW_GPIOA, 6), GPIO_MAKE_PIN(HW_GPIOA, 12) };
+
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        // should really be open-drain but the chip doesn't support it
+        // don't press 2 keys on the same row at once
+        GPIO_DRV_ClearPinOutput(cols[i]);
+        for (uint8_t j = 0; j < 3; j++)
+        {
+            if (!GPIO_DRV_ReadPinInput(rows[j]))
+            {
+                *key = '0' + 3*j + i;
+                if (*key != keyPrev)
+                {
+                    keyPrev = *key;
+                    GPIO_DRV_SetPinOutput(cols[i]);
+                    return true;
+                }
+                else
+                {
+                    repeat = true;
+                }
+            }
+        }
+        GPIO_DRV_SetPinOutput(cols[i]);
+    }
+
+    if (!repeat)
+        keyPrev = 0;
+
     return false;
 }
 
@@ -280,7 +374,7 @@ bool move(const bool me, const char key, const bool learn, const bool draw)
         // check if pick failed
         if (box > 8)
         {
-            SEGGER_RTT_WriteString(0, "E\n");
+            WRITE_STRING("E\n");
             numMove = 9;
             return true;
         }
@@ -293,8 +387,9 @@ bool move(const bool me, const char key, const bool learn, const bool draw)
         numMove++;
 
         // print to player
-        SEGGER_RTT_PutChar(0, box + '0');
-        SEGGER_RTT_PutChar(0, '\n');
+        const char c = box + '0';
+        PUT_CHAR(c);
+        PUT_CHAR('\n');
 
         // draw on display and over RTT
         if (draw)
@@ -355,7 +450,7 @@ bool move(const bool me, const char key, const bool learn, const bool draw)
                 drawCross(box, false);
             else
                 drawNought(box, false);
-            SEGGER_RTT_PutChar(0, '\n');
+            PUT_CHAR('\n');
             printBoard();
         }
     }
@@ -401,10 +496,9 @@ bool move(const bool me, const char key, const bool learn, const bool draw)
         {
             // print win/loss
             if (me)
-                SEGGER_RTT_PutChar(0, 'W');
+                WRITE_STRING("W\n");
             else
-                SEGGER_RTT_PutChar(0, 'L');
-            SEGGER_RTT_PutChar(0, '\n');
+                WRITE_STRING("L\n");
             // learn from it
             if (learn)
                 learnFrom(me);
@@ -414,7 +508,7 @@ bool move(const bool me, const char key, const bool learn, const bool draw)
         // check for draw
         else if (numMove > 8)
         {
-            SEGGER_RTT_WriteString(0, "D\n");
+            WRITE_STRING("D\n");
         }
     }
 
@@ -453,7 +547,7 @@ void resetGame(void)
 // clear the board on the display
 void clearBoard(void)
 {
-    devSSD1331Clear(&(const screenCoord){32, 0}, &(const screenCoord){95, 63});
+    devSSD1331Clear(&(const screenCoord){0, 0}, &(const screenCoord){63, 63});
     drawGrid();
 }
 
@@ -509,19 +603,19 @@ void printBoard(void)
                         break;
                 }
             }
-            SEGGER_RTT_PutChar(0, ' ');
-            SEGGER_RTT_PutChar(0, c);
-            SEGGER_RTT_PutChar(0, ' ');
+            PUT_CHAR(' ');
+            PUT_CHAR(c);
+            PUT_CHAR(' ');
             if (j < 2)
-                SEGGER_RTT_WriteString(0, "|");
+                PUT_CHAR('|');
         }
         OSA_TimeDelay(PRINT_LINE_DELAY);
         if (i < 2)
         {
-            SEGGER_RTT_WriteString(0, "\n-----------");
+            WRITE_STRING("\n-----------");
             OSA_TimeDelay(PRINT_LINE_DELAY);
         }
-        SEGGER_RTT_PutChar(0, '\n');
+        PUT_CHAR('\n');
     }
 }
 
@@ -529,10 +623,12 @@ void printBoard(void)
 // draw the board grid on the display
 void drawGrid(void)
 {
-    devSSD1331DrawRect(&(const screenCoord){95, 20}, &(const screenCoord){32, 21}, &COLOR_GRID, true);
-    devSSD1331DrawRect(&(const screenCoord){95, 42}, &(const screenCoord){32, 43}, &COLOR_GRID, true);
-    devSSD1331DrawRect(&(const screenCoord){74, 00}, &(const screenCoord){75, 63}, &COLOR_GRID, true);
-    devSSD1331DrawRect(&(const screenCoord){52, 00}, &(const screenCoord){53, 63}, &COLOR_GRID, true);
+    // horizontal lines
+    devSSD1331DrawRect(&(const screenCoord){0, 20}, &(const screenCoord){63, 21}, &COLOR_GRID, true);
+    devSSD1331DrawRect(&(const screenCoord){0, 42}, &(const screenCoord){63, 43}, &COLOR_GRID, true);
+    // vertical lines
+    devSSD1331DrawRect(&(const screenCoord){20, 00}, &(const screenCoord){21, 63}, &COLOR_GRID, true);
+    devSSD1331DrawRect(&(const screenCoord){42, 00}, &(const screenCoord){43, 63}, &COLOR_GRID, true);
 }
 
 
@@ -545,27 +641,27 @@ void drawCross(const uint8_t box, const bool mine)
     else
         color = COLOR_OPP;
     
-    const uint8_t boxX = 95 - (box / 3) * 22;
-    const uint8_t boxY = (box % 3) * 22;
+    const uint8_t boxX = BOX_X(box);
+    const uint8_t boxY = BOX_Y(box);
 
-    devSSD1331DrawLine(&(screenCoord){boxX - BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - 19 + BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
+    devSSD1331DrawLine(&(screenCoord){boxX + BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + 19 - BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
                        &color);
-    devSSD1331DrawLine(&(screenCoord){boxX - 1 - BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - 19 + BOX_BORDER_OFFSET, boxY + 18 - BOX_BORDER_OFFSET},
+    devSSD1331DrawLine(&(screenCoord){boxX + 1 + BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + 19 - BOX_BORDER_OFFSET, boxY + 18 - BOX_BORDER_OFFSET},
                        &color);
-    devSSD1331DrawLine(&(screenCoord){boxX - BOX_BORDER_OFFSET, boxY + 1 + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - 18 + BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
+    devSSD1331DrawLine(&(screenCoord){boxX + BOX_BORDER_OFFSET, boxY + 1 + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + 18 - BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
                        &color);
 
-    devSSD1331DrawLine(&(screenCoord){boxX - 19 + BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
+    devSSD1331DrawLine(&(screenCoord){boxX + 19 - BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
                        &color);
-    devSSD1331DrawLine(&(screenCoord){boxX - 19 + BOX_BORDER_OFFSET, boxY + 1 + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - 1 - BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
+    devSSD1331DrawLine(&(screenCoord){boxX + 19 - BOX_BORDER_OFFSET, boxY + 1 + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + 1 + BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
                        &color);
-    devSSD1331DrawLine(&(screenCoord){boxX - 18 + BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - BOX_BORDER_OFFSET, boxY + 18 - BOX_BORDER_OFFSET},
+    devSSD1331DrawLine(&(screenCoord){boxX + 18 - BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + BOX_BORDER_OFFSET, boxY + 18 - BOX_BORDER_OFFSET},
                        &color);
 }
 
@@ -579,17 +675,17 @@ void drawNought(const uint8_t box, const bool mine)
     else
         color = COLOR_OPP;
     
-    const uint8_t boxX = 95 - (box / 3) * 22;
-    const uint8_t boxY = (box % 3) * 22;
+    const uint8_t boxX = BOX_X(box);
+    const uint8_t boxY = BOX_Y(box);
 
-    devSSD1331DrawRect(&(screenCoord){boxX - 19 + BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
+    devSSD1331DrawRect(&(screenCoord){boxX + 19 - BOX_BORDER_OFFSET, boxY + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + BOX_BORDER_OFFSET, boxY + 19 - BOX_BORDER_OFFSET},
                        &color, false);
-    devSSD1331DrawRect(&(screenCoord){boxX - 18 + BOX_BORDER_OFFSET, boxY + 1 + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - 1 - BOX_BORDER_OFFSET, boxY + 18 - BOX_BORDER_OFFSET},
+    devSSD1331DrawRect(&(screenCoord){boxX + 18 - BOX_BORDER_OFFSET, boxY + 1 + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + 1 + BOX_BORDER_OFFSET, boxY + 18 - BOX_BORDER_OFFSET},
                        &color, false);
-    devSSD1331DrawRect(&(screenCoord){boxX - 17 + BOX_BORDER_OFFSET, boxY + 2 + BOX_BORDER_OFFSET},
-                       &(screenCoord){boxX - 2 - BOX_BORDER_OFFSET, boxY + 17 - BOX_BORDER_OFFSET},
+    devSSD1331DrawRect(&(screenCoord){boxX + 17 - BOX_BORDER_OFFSET, boxY + 2 + BOX_BORDER_OFFSET},
+                       &(screenCoord){boxX + 2 + BOX_BORDER_OFFSET, boxY + 17 - BOX_BORDER_OFFSET},
                        &color, false);
 }
 
@@ -603,13 +699,13 @@ void drawWin(const uint8_t box1, const uint8_t box2, const bool mine)
     else
         color = COLOR_OPP;
     
-    const uint8_t box1_x = 95 - (box1 / 3) * 22;
-    const uint8_t box1_y = (box1 % 3) * 22;
-    const uint8_t box2_x = 95 - (box2 / 3) * 22;
-    const uint8_t box2_y = (box2 % 3) * 22;
+    const uint8_t box1_x = BOX_X(box1);
+    const uint8_t box1_y = BOX_Y(box1);
+    const uint8_t box2_x = BOX_X(box2);
+    const uint8_t box2_y = BOX_Y(box2);
 
-    devSSD1331DrawLine(&(screenCoord){box1_x - 10, box1_y + 10},
-                       &(screenCoord){box2_x - 10, box2_y + 10},
+    devSSD1331DrawLine(&(screenCoord){box1_x + 10, box1_y + 10},
+                       &(screenCoord){box2_x + 10, box2_y + 10},
                        &color);
 }
 
@@ -619,15 +715,15 @@ void drawError(const uint8_t box)
 {
     if (box < 9)
     {
-        const uint8_t boxX = 95 - (box / 3) * 22;
-        const uint8_t boxY = (box % 3) * 22;
-        devSSD1331DrawRect(&(screenCoord){boxX - 19, boxY},
+        const uint8_t boxX = BOX_X(box);
+        const uint8_t boxY = BOX_Y(box);
+        devSSD1331DrawRect(&(screenCoord){boxX + 19, boxY},
                            &(screenCoord){boxX, boxY + 19},
                            &COLOR_ERR, true);
     }
     else
     {
-        devSSD1331DrawRect(&(const screenCoord){32, 0}, &(const screenCoord){95, 63}, &COLOR_ERR, true);
+        devSSD1331DrawRect(&(const screenCoord){0, 0}, &(const screenCoord){63, 63}, &COLOR_ERR, true);
     }
 }
 
@@ -812,6 +908,8 @@ void learnFrom(const bool won)
                 *address += LEARN_INC;
             else if (boxWeight > LEARN_INC)
                 *address -= LEARN_INC;
+            else if (boxWeight > 1)
+                *address -= (boxWeight - 1);
         }
         else
         {
@@ -820,6 +918,8 @@ void learnFrom(const bool won)
                 *address += LEARN_INC << 4;
             else if (boxWeight > LEARN_INC)
                 *address -= LEARN_INC << 4;
+            else if (boxWeight > 1)
+                *address -= (boxWeight - 1) << 4;
         }
     }
 }
