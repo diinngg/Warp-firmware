@@ -69,6 +69,7 @@ def is_valid(board, boards):
 
 
 def move(board, move_num, boards):
+    """Recursively make all possible moves"""
     if move_num < 7:
         for i in range(9):
             if not board[i]:
@@ -82,26 +83,30 @@ def move(board, move_num, boards):
 
 
 def do_move():
+    """Find all possible boards"""
     board = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-    boards = dict([(0, 0)])
+    boards = {0: 0}
     move(board, 0, boards)
-    with open('boards.pickle', 'wb') as f:
-        pickle.dump(boards, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return boards
 
 
 if __name__ == '__main__':
     os.chdir(sys.path[0])
-    do_move()
+    # find all possible boards, takes a while so comment out if done before
+    with open('boards.pickle', 'wb') as f:
+        pickle.dump(do_move(), f, protocol=pickle.HIGHEST_PROTOCOL)
+    # load boards
     with open('boards.pickle', 'rb') as f:
         boards = pickle.load(f)
 
+    # list boards by number of moves made
     boards_by_move_num = [[] for _ in range(10)]
     for board_id, move_num in boards.items():
         boards_by_move_num[move_num].append(board_id)
 
     print()
 
-    # boards
+    # generate boards arrays
     out_type = 'uint32_t'
     for i in range(len(boards_by_move_num)):
         if not len(boards_by_move_num[i]):
@@ -117,7 +122,7 @@ if __name__ == '__main__':
 
     print()
 
-    # moves
+    # generate moves arrays
     out_type = 'uint8_t'
     sum = 0
     for i in range(len(boards_by_move_num)):
@@ -138,7 +143,7 @@ if __name__ == '__main__':
 
     print()
 
-    # random
+    # generate random array
     num_rand = 127
     bits = 8
     out_type = 'uint8_t'

@@ -24,7 +24,7 @@ baudrate = 115200
 # whether this program moves first
 move_first = False
 # max number of training games
-max_games = 100000
+max_games = 50000
 # time delay (ms) between games
 game_delay = 0
 # how often (in games) to print current stats
@@ -32,6 +32,7 @@ print_interval = 100
 
 
 class Comm():
+    """Wrapper around Telnet and Serial"""
     def __init__(self, telnet, port=None, baudrate=9600, timeout=1):
         self.use_telnet = telnet
         self.port = port
@@ -40,6 +41,7 @@ class Comm():
         if self.use_telnet:
             self.t = telnetlib.Telnet(host='localhost', port=self.port)
         else:
+            # use *IDN? to find board
             if port is None:
                 tty_dir = '/dev/'
                 tty_match = 'ttyUSB*'
@@ -76,16 +78,53 @@ class Comm():
         self.t.close()
 
 
+def skill_level(games, max_games, win_percent):
+    """Return appropriate skill level dependant on number of games and/or 
+    win-rate
+    """
+    # causes system to learn how to draw 100%
+    #if games >= 3 * max_games / 4:
+    #    return 3
+    if games >= 2 * max_games / 4:
+        return 2
+    if games >= 1 * max_games / 4:
+        return 1
+    return 0
+
+
 def pick_box(board, skill_level):
-    if skill_level == 1:
-        pass
-    elif skill_level == 2:
-        pass
-    else:
-        try:
-            return random.choice([i for i, x in enumerate(board) if x == 0])
-        except IndexError:
-            return -1
+    """Pick box to play"""
+    winning_moves = {1:[], 2:[]}
+    if skill_level >= 1:
+        # if the trainer is about to win take that box
+        # first look for winning moves
+        for t in pick_box.possible_wins:
+            b = [board[i] for i in t]
+            if b.count(0) == 1:
+                for i in [1, 2]:
+                    if b.count(i) == 2:
+                        winning_moves[i].append(t[b.index(0)])
+                        break
+        if winning_moves[1]:
+            return winning_moves[1][0]
+    if skill_level >= 2:
+        # if the system is about to win take that box
+        if winning_moves[2]:
+            return winning_moves[2][0]
+    if skill_level >= 3:
+        # take middle box
+        if board[4] == 0:
+            return 4
+    try:
+        # choose a box at random
+        return random.choice([i for i, x in enumerate(board) if x == 0])
+    except IndexError:
+        return -1
+
+# combinations of boxes that can result in a win
+pick_box.possible_wins = ((0, 1, 2), (3, 4, 5), (6, 7, 8),
+                          (0, 3, 6), (1, 4, 7), (2, 5, 8),
+                          (0, 4, 8), (2, 4, 6))
 
 
 if __name__ == '__main__':
@@ -96,12 +135,15 @@ if __name__ == '__main__':
     t = Comm(use_telnet, port if use_telnet else None, 
              baudrate=baudrate, timeout=1)
     try:
+        # flush out info
         print(t.read_until('???'))
+        # reset system
         t.write('R')
 
         time_start = time.time()
 
         for i in range(int(max_games)):
+            # start fast training game
             t.write('F')
             board = [0, 0, 0, 0, 0, 0, 0, 0, 0]
             if move_first:
@@ -109,25 +151,36 @@ if __name__ == '__main__':
                 board[box] = 1
                 t.write(str(box))
             while True:
+                # read system move
                 c = t.read_until('\n')
                 if not c:
                     raise Exception
                 if c[0] not in listen_chars:
+                    # unknown, ignore
                     continue
                 elif c[0] in listen_chars[0:9]:
+                    # record system move
                     board[int(c[0])] = 2
                 elif c[0] in listen_chars[9:]:
+                    # game end
                     record.append(c[0])
                     break
                 else:
                     raise Exception
-
-                box = pick_box(board, 0)
+                
+                # trainer move, pick box
+                box = pick_box(board, skill_level(i, max_games, 
+                                                  record_stats['W'][-1]
+                                                  if record_stats['W'] else 0))
                 if box == -1:
+                    # game about to end
                     continue
+                # record trainer move
                 board[box] = 1
+                # send to system
                 t.write(str(box))
             if not (len(record) % print_interval):
+                # print data, add to record_stats
                 time_end = time.time()
                 count = Counter(record[-print_interval:])
                 win_percent = 100 * count['W'] / print_interval
@@ -152,20 +205,24 @@ if __name__ == '__main__':
     except:
         raise
     finally:
+        # set system to idle
         t.write('R')
         t.close()
+        # save data
         os.chdir(sys.path[0])
         with open('record.pickle', 'wb') as f:
             pickle.dump(record, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # plot
         x = [print_interval * (i + 1) for i in range(len(record_stats['W']))]
-        plt.plot(x, record_stats['W'], 'g', label='win %')
-        plt.plot(x, record_stats['D'], 'y', label='draw %')
-        plt.plot(x, record_stats['L'], 'r', label='loss %')
-        plt.plot(x, record_stats['E'], 'm', label='error %')
         plt.plot(x, record_stats['G'], 'b', label='games/sec')
+        plt.plot(x, record_stats['E'], 'm', label='error %')
+        plt.plot(x, record_stats['L'], 'r', label='loss %')
+        plt.plot(x, record_stats['D'], 'y', label='draw %')
+        plt.plot(x, record_stats['W'], 'g', label='win %')
+        plt.title('System Performance')
         plt.legend()
         plt.grid()
-        plt.xlabel('games')
+        plt.xlabel('Games')
         if x:
             plt.xlim(x[0], x[-1])
         plt.ylabel('')

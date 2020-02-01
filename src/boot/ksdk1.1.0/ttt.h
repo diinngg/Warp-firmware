@@ -23,7 +23,7 @@ uint8_t pickBox(void);
 uint8_t getMinBoardID(uint32_t *boardID);
 uint32_t getBoardID(const uint8_t *board, const uint8_t *permute);
 
-void learnFrom(const bool won);
+void learnFrom(const uint8_t result);
 
 
 const gpio_output_pin_user_config_t kpOutputPins[] = {
